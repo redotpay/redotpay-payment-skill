@@ -1,6 +1,6 @@
 # RedotPay Payment Skill
 
-Agent skill for usage of **[MPP services](https://mpp.dev/)**: discover services (`redotpay wallet services list --search`), inspect endpoints and pricing, get explicit user confirmation, then run paid calls with `redotpay request` when appropriate. Full instructions live in `[skills/redotpay-payment/SKILL.md](skills/redotpay-payment/SKILL.md)`.
+Agent skill for use **[MPP services](https://mpp.dev/)**: discover services (`redotpay wallet services list --search`), inspect endpoints and pricing, get explicit user confirmation, then run paid calls with `redotpay request` when appropriate. Full instructions live in `[skills/redotpay-payment/SKILL.md](skills/redotpay-payment/SKILL.md)`.
 
 ## One-shot install (agent reads the URL and sets up)
 
