@@ -1,300 +1,67 @@
 ---
 name: redotpay-payment
-description: "use when the user asks RedotPay to find, search, request, or look up services/data. Covers service discovery by ```bash
-redotpay wallet services list --search \"<keywords>\"
-```  and data retrieval across media generation, model APIs, data APIs, and agent-commerce lookups. Triggers on 'use redotpay to find/search/look up/request XXX'."
-
+description: >-
+  已安装的 redotpay-payment MCP：通用 MPP 402 代付。默认先 pay；仅当需重新授权时再
+  start_authorization 与扫码。适用于 Cursor、Claude Code、Claude Desktop、Windsurf、
+  Codex、Cline 等支持 MCP 的 Agent。勿要求用户配置环境变量或从源码构建。
+disable-model-invocation: true
 ---
 
-# RedotPay Payment
+# redotpay-payment（已安装 · 通用代付）
 
-Services discovery and data retrieval via CLI. **Find, search, and request.**
+本 skill 供 **带 MCP 能力的 Agent** 使用（Cursor、Claude Code、Claude Desktop、Windsurf、Codex CLI、Cline 等）。由 **Agent 代为调用** MCP 工具或 CLI；**不要**把安装、配置、支付步骤推给用户手敲，除非用户明确拒绝 Agent 代跑。
 
-## Prerequisites & Readiness Check
+## 前提
 
-**Before any user-facing workflow, verify the `redotpay` binary is callable.**
+- 用户应已通过官方 **`install.sh`** 完成安装：PATH 上有 **`redotpay-payment`**，且当前宿主已配置 MCP server **`redotpay-payment`**。
+- 二进制 **stdout** 仅用于 MCP JSON-RPC；日志在 stderr。
+- 网络与 OAuth 身份已在**安装时**固化；Agent **不得**要求用户设置或导出安装器写入的任何环境变量，**不得**在对话中向用户写出这些变量名。
+- MCP 未就绪时：引导用户重新运行官方安装命令，或在**当前 Agent 宿主**的设置里确认 MCP 已启用；**禁止** Agent 手改 MCP 配置或向用户解释底层环境项。
 
-### Step 0 — Environment Verify
+## 主流程（MCP，默认）
+
+1. **先 `pay`**  
+   同一设备上可能仍有有效 `mpp_charge` 凭据（钥匙串/密钥链）。**默认直接调 `pay`**，不要每笔都先扫码。
+
+2. **仅当需要重新设备授权时**（例如 `pay` 返回/提示 `authorization_required`，或确定无凭据）：
+   - **`start_authorization`** → 必须把返回的 MCP **`type: "image"`**（PNG）展示给用户可扫  
+   - **紧接着** **`wait_for_authorization`**（使用返回的 `polling_token`）  
+   - **再 `pay`**  
+   `start` 与 `wait` 须在**同一轮 Agent 工具链**内连续调用；**不要**等用户在聊天里发「好了」再 `wait`。
+
+3. **可选**：`list_authorizations` 向用户说明当前仍有哪些代付授权（非每单必调）。
+
+4. 若对话里只有文字、没有二维码图：检查 MCP 是否已连接、宿主是否支持 MCP 图片块；**不要**用 Markdown `data:` 链接冒充 MCP 图块。
+
+## 工具一览
+
+| 工具 | 用途 |
+|------|------|
+| `pay` | 访问 MPP 资源，处理 402 与代付 |
+| `start_authorization` | 设备授权；返回 QR + `polling_token` |
+| `wait_for_authorization` | 轮询至用户在 RedotPay App 确认或超时 |
+| `list_authorizations` / `revoke` | 查看、撤销授权 |
+| `recent_payments` / `device_logout` | 本地支付记录、本机登出 |
+| `show_image` / `inline_png` | 仅展示图片（非支付逻辑） |
+| `check_for_updates` / `self_update` | 版本检查与升级 |
+
+`pay` 走 POST 时须传 `method` 与 `body`（与工具 schema 一致）。
+
+## CLI 附录（仅当 MCP 不可用时）
+
+由 **Agent** 在终端代为执行（仍勿让用户手敲）；**不要**加任何环境变量前缀：
 
 ```bash
-command -v redotpay && redotpay --version
+redotpay-payment auth start --scope mpp_charge
+redotpay-payment auth wait --device-code '<device_code>'
+redotpay-payment pay --resource '<资源 URL>' --method GET
 ```
 
-| Result | Action |
-|--------|--------|
-| `command not found` / no output | CLI not installed → run **curl -fsSL "https://raw.githubusercontent.com/redotpay/redotpay-cli/main/install.sh" | bash** below |
-| Found but shell still cannot resolve `redotpay` | CLI installed but PATH not refreshed → open a new shell and re-run verify |
-| Found + version prints | Ready → skip to Core Workflow |
+扫码展示**优先** MCP `start_authorization`。CLI `auth start` 无法在对话中自动出图，除非再配合 MCP `inline_png` / `show_image` 展示已保存的 PNG。
 
-### Install CLI
+## 硬规则
 
-Only run when `command -v redotpay` returns nothing.
-
-```bash
-curl -fsSL "https://raw.githubusercontent.com/redotpay/redotpay-cli/main/install.sh" | bash
-```
-
-Then re-run the verify check above.
-
----
-
-## When to Trigger
-
-Trigger when the user message combines RedotPay with a **discovery or query** action:
-
-- `use redotpay to find/search/look up/request …`
-- `request/find/search/look up … by/via redotpay`
-- `用 redotpay 找/查/搜 …`
-
-**Trigger examples:**
-
-> "use redotpay to find running shoes under $150 with free shipping"
-> "use redotpay to search flights SFO to Tokyo"
-> "look up AAPL stock data by redotpay"
-> "request weather data for NYC via redotpay"
-
----
-
-## Task Buckets
-
-RedotPay services are organized into these categories. Use them to guide keyword selection during service discovery:
-
-### Generate Media
-Image, video, music, audio, TTS, transcription.
-
-### Model APIs
-Chat completion, embeddings, inference.
-
-### Data APIs
-Search, extraction, on-chain data, travel/maps-style lookups (per catalog).
-
-### Agent-Commerce
-Buy/order/purchase flows exposed via MPP (lottery, domains, mail, etc.).
-
-> **Note:** This skill handles discovery and data retrieval across all buckets. Agent-commerce **purchase** flows are excluded — only listing/searching/looking up commerce services is allowed.
-
----
-
-## Core Workflow (Four Steps)
-
-**Steps A, B, C do not require login.** Login is only needed at Step D before making a paid request.
-
-### Step A — Search for Services
-
-```bash
-redotpay wallet services list --search "<keywords>"
-```
-
-Extract 1–3 core keywords from the user's request. Match against the task buckets above:
-
-| User Request | Bucket | Search Terms |
-|-------------|--------|-------------|
-| Find running shoes under $150 | Data APIs | `--search "shoes product search"` |
-| Search flights SFO→JFK | Data APIs | `--search "flight travel"` |
-| Look up AAPL stock | Data APIs | `--search "stock market finance"` |
-| Generate an image of a cat | Generate Media | `--search "image generation"` |
-| Transcribe this audio file | Generate Media | `--search "transcription audio"` |
-| Chat with GPT about history | Model APIs | `--search "chat completion llm"` |
-
-If results are empty, try broader keywords. Output is JSON — focus on `id`, `name`, `description`, `serviceUrl`.
-
-### Step B — Inspect the Service
-
-```bash
-redotpay wallet services <service_id>
-```
-
-Get endpoint list, parameter schema, and pricing. **Always inspect before calling.**
-
-### Step C — Quote Cost and Get Confirmation
-
-**After inspecting the service and mapping user constraints to parameters, before any request:**
-
-1. Tell the user:
-   - Which service and endpoint will be called
-   - Exact cost in **USD** (convert from the service's native currency; stablecoins like USDC/USDT = 1:1 USD; for other tokens, note both the raw amount and estimated USD value)
-   - What the request will return
-2. **Wait for explicit user confirmation.** Do not proceed without it.
-3. If user says no or asks for alternatives, go back to Step A or B.
-
-### Step D — Login then Call the Service
-
-**Login is only required at this step.**
-
-First, check login status:
-
-```bash
-redotpay wallet whoami
-```
-
-- Logged in → proceed to call the service
-- Not logged in → run login flow (see Login Flow below), then proceed
-
-Then call the service:
-
-```bash
-redotpay request [flags] <endpoint_url>
-```
-
-Only execute after Step C confirmation and login check.
-
----
-
-## Command Reference
-
-```text
-redotpay wallet services list [--search <q>]  # Search services
-redotpay wallet services <id>                  # Inspect service details
-redotpay request [curl-flags] <url>            # Send request
-redotpay wallet whoami                         # Check login status
-redotpay wallet login                          # Log in
-redotpay wallet logout                         # Log out
-redotpay --help                                # Help
-redotpay request --help                        # Request help
-redotpay guide                                 # Usage guide
-```
-
----
-
-## Payment Safety Rules
-
-### User Confirmation
-
-1. Login (`wallet login`) does not require confirmation for a specific charge.
-2. Any paid `redotpay request` must:
-   - State the cost in **USD**, the purpose, and the original currency/amount
-   - Obtain **explicit user confirmation** before executing
-
-### Spend Cap
-
-Set a cap via `--max-spend` or `REDOTPAY_CLI_MAX_SPEND` for any chargeable request. If the user refuses a cap, do not proceed.
-
-### Preflight
-
-Login is only required at Step D. Do **not** run `whoami` or `login` during Steps A, B, or C.
-
----
-
-## Login Flow
-
-Only triggered at Step D when `whoami` returns "not logged in".
-
-```bash
-redotpay wallet login
-```
-
-1. Parse stdout JSON, extract `login_qr_png_path` and `user_code`
-2. Read and display the QR image as an attachment: `read <login_qr_png_path>`
-3. Tell the user: **Open the RedotPay app, scan the QR code above to authorize**
-4. Wait for user → `whoami` to confirm → continue
-
----
-
-## Troubleshooting
-
-### `redotpay request` returns 402 / payment error
-
-1. Ensure wallet is logged in: `redotpay wallet whoami`
-2. Verify `--max-spend` is not lower than the endpoint price
-
-### `redotpay request` returns 402 / payment error
-
-1. Ensure wallet is logged in: `redotpay wallet whoami`
-2. Verify `--max-spend` is not lower than the endpoint price
-
-### Service returns empty results
-
-1. Broaden keywords in `redotpay wallet services list --search`
-2. Check the service catalog for available categories
-3. Some services require specific parameter formats — always inspect with `redotpay wallet services <id>` before calling
-
----
-
-## After setup
-
-Provide:
-
-- RedotPay readiness **only from** `redotpay wallet whoami`.
-- Whether the task is MPP discovery, direct redotpay request, or 402 retry.
-- If login is required, follow **Login Flow** only (QR + **RedotPay app** scan reminder ; no token dumps).
-
----
-
-## Use services and requests
-
-```bash
-redotpay wallet services list
-redotpay wallet services list --search <query>
-redotpay wallet services <service_id>
-redotpay request [curl-like flags] <URL>
-```
-
-- Use `redotpay wallet services` for mpp.dev-style public registry discovery (`id`, `name`, `serviceUrl`, etc.).
-- Use `redotpay request` as the curl-like HTTP entrypoint, including paid endpoints that may return 402.
-
----
-
-## Preflight (mandatory for `redotpay request`)
-
-Before **any** `redotpay request`, run **`redotpay wallet whoami`** first.
-
-If **not logged in** or session invalid: **do not** call the URL yet or blindly retry. **Pause**, run **Login Flow** end-to-end (including **RedotPay app** QR scan instructions), wait until the user finishes authorization, then `whoami` until it is good; **then** run or retry `redotpay request`.
-
-`redotpay wallet services …` may work without a session in some setups; paid or session-gated calls still require the rule above.
-
-### Request examples
-
-```bash
-redotpay request https://example.com/resource
-redotpay request -X POST https://example.com/api -H 'Content-Type: application/json' --json '{"a":1}'
-```
-
----
-
-## HTTP 402 behavior (`redotpay request`)
-
-Many paid flows return `402 Payment Required`. `redotpay request` supports behaviors described in CLI help, including:
-
-### If a 402 lists Tempo as a payment method
-
-Do **not** assume you must switch to `tempo` or `mppx`.
-
-In this model, `redotpay request` can still complete payment when Tempo appears in offered methods, using RedotPay OAuth session (`redotpay wallet login`) plus normal redotpay request semantics.
-
-For edge cases, consult `redotpay guide` and CLI help before guessing.
-
----
-
-## Agent UX before charging
-
-1. State amount, currency, and purpose when known.
-2. **Consent vs login:** you may run **`redotpay wallet login`** as soon as `whoami` shows no session (identity only). That is **not** consent for a **specific charge** — get explicit agreement on amount/currency/purpose before a **paid** `redotpay request` (or before approving spend on a retry after login).
-3. **Preflight:** `whoami` before every `redotpay request`; if no session → **Login Flow** (QR + **tell the user to open the RedotPay app and scan to authorize**) → then request.
-4. Never paste OAuth tokens, raw wallet payloads, or full credential files into chat.
-
----
-
-## Safety
-
-- Never request, print, or store OAuth tokens, API keys, or signing material in chat.
-- Treat local RedotPay wallet config as sensitive; do not dump credential stores or full config.
-- Use verbose mode (`-v`) sparingly because stderr may expose URL/payment metadata.
-
----
-
-## Notes
-
-- Never expose OAuth tokens, keys, or wallet config in chat
-- Use `-v` sparingly (stderr may leak payment metadata)
-- **Login QR:** use `read` tool on the PNG path, not `![...](file://...)` markdown (blocked by browser security)
-
----
-
-## Installation Reference
-
-Manual first-time setup (normally handled automatically by the Prerequisites check above).
-
-```bash
-curl -fsSL "https://raw.githubusercontent.com/redotpay/redotpay-cli/main/install.sh" | bash
-redotpay --version
-```
+- **默认先 `pay`**；补授权时 **`start` → 展示图 → `wait` 同轮连续**，`wait` 成功后再 `pay`。
+- 不向用户粘贴 access token、refresh token、完整 `Authorization: Payment` 或支付凭据正文。
+- **对用户**：不输出环境变量名、完整上游 HTTP JSON、可复盘的工具返回全文；只说明**当前状态**与**下一步**（例如：请扫上方二维码完成授权；支付未完成请稍后重试）。
+- 安装或升级后，提示用户在**当前 Agent 宿主**中**重新加载 MCP**（重启 IDE 或刷新 MCP 连接）。

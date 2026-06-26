@@ -1,42 +1,42 @@
-# RedotPay Payment Skill
+# redotpay-payment
 
-Agent skill for use **[MPP services](https://mpp.dev/)**: discover services (`redotpay wallet services list --search`), inspect endpoints and pricing, get explicit user confirmation, then run paid calls with `redotpay request` when appropriate. Full instructions live in `[skills/redotpay-payment/SKILL.md](skills/redotpay-payment/SKILL.md)`.
+MPP 代付 MCP server — 预编译二进制一键安装（无需 Rust 工具链）。
 
-## One-shot install (agent reads the URL and sets up)
+生产环境 API：`https://apiv2.redotpay.com`
 
-These patterns are **convenience prompts**: the agent fetches the raw `SKILL.md`, then creates the right directory layout (`.../redotpay-payment/SKILL.md`) for each tool. You still need the **[redotpay CLI](https://github.com/redotpay/redotpay-cli)** on your machine; the skill only tells the agent how to use it.
+## Install
 
-### Codex
+无需任何参数：
 
-```bash
-codex exec "Read https://raw.githubusercontent.com/redotpay/redotpay-payment-skill/main/skills/redotpay-payment/SKILL.md and install to ~/.codex/skills/redotpay-payment/SKILL.md."
+```sh
+curl -fsSL https://raw.githubusercontent.com/redotpay/redotpay-payment-skill/main/install.sh | sh
 ```
 
-### Claude Code
+审阅后再执行（推荐）：
 
-Non-interactive one-shot (see [CLI reference](https://code.claude.com/docs/en/cli-reference)):
-
-```bash
-claude -p "Read https://raw.githubusercontent.com/redotpay/redotpay-payment-skill/main/skills/redotpay-payment/SKILL.md and install to ~/.claude/skills/redotpay-payment/SKILL.md."
+```sh
+curl -fsSL https://raw.githubusercontent.com/redotpay/redotpay-payment-skill/main/install.sh -o install.sh
+less install.sh
+sh install.sh
 ```
 
-For stricter tool control in automation, add flags such as `--allowedTools`, `--max-turns`, or `--max-budget-usd` per your [headless / production docs](https://code.claude.com/docs/en/headless).
+自动行为：拉取 **latest** Release、检测本机平台、安装二进制 + MCP + 多 Agent skill。
 
-### Amp
+高级选项（一般不需要）：
 
-Amp discovers skills under paths such as `~/.config/agents/skills/`, `~/.config/amp/skills/`, and `.agents/skills/` (see [Amp manual — Agent Skills](https://ampcode.com/manual)). Example:
-
-```bash
-amp -x "Read https://raw.githubusercontent.com/redotpay/redotpay-payment-skill/main/skills/redotpay-payment/SKILL.md and install to ~/.config/agents/skills/redotpay-payment/SKILL.md."
+```sh
+sh install.sh --uninstall
+sh install.sh --dry-run
 ```
 
-## Using with Cursor
+安装内容：二进制 → `~/.local/bin`（或 `--install-dir`）、MCP（Cursor / Claude Code / Claude Desktop / Windsurf）、全局 skills（cursor / claude / codex / cline）。
 
-This repository includes a committed Cursor project rule `[.cursor/rules/redotpay-payment.mdc](.cursor/rules/redotpay-payment.mdc)`, so the same RedotPay workflow applies automatically when you open this project in Cursor.
+安装后请 **重启 Cursor / Claude Code / Claude Desktop** 以加载 MCP。
 
-See `[CURSOR.md](CURSOR.md)` for:
+## macOS Keychain 重复弹窗
 
-- setup checks in this repository,
-- using the same rule in other projects, and
-- installing as a personal/global Cursor skill (`~/.cursor/skills/...`).
+若每次启动 MCP 都提示钥匙串授权：对 **当前正在运行的** `redotpay-payment` 二进制点「始终允许」；`cargo build` 会改变 ad-hoc 签名导致需重新授权。本安装器使用固定路径 `~/.local/bin/redotpay-payment`，升级后一般无需重复授权。
 
+## Support
+
+问题反馈请通过 RedotPay 官方支持渠道。本仓库不含 Rust 源码。
